@@ -641,29 +641,29 @@ namespace GitHub.secile.Video
 
             private Bitmap GetBitmapMain()
             {
-                // サンプルグラバから画像を取得するためには
-                // まずサイズ0でGetCurrentBufferを呼び出しバッファサイズを取得し
-                // バッファ確保して再度GetCurrentBufferを呼び出す。
-                // 取得した画像は逆になっているので反転させる必要がある。
+                // To get an image from the sample grabber
+                // First call GetCurrentBuffer with size 0 to get the buffer size
+                // Allocate a buffer and call GetCurrentBuffer again.
+                // The acquired image is reversed and needs to be inverted.
                 int size = 0;
-                Grabber.GetCurrentBuffer(ref size, IntPtr.Zero); // IntPtr.Zeroで呼び出してバッファサイズ取得
+                Grabber.GetCurrentBuffer(ref size, IntPtr.Zero); // Get buffer size by calling with IntPtr.Zero
                 if (size == 0) return null;
 
                 if (Buffer == null || size != Buffer.Length)
                 {
-                    // メモリ確保
+                    // Allocating memory
                     if (BufPtr != IntPtr.Zero) Marshal.FreeCoTaskMem(BufPtr);
                     BufPtr = Marshal.AllocCoTaskMem(size);
 
                     Buffer = new byte[size];
                 }
 
-                // 画像データ取得しbyte配列に入れなおす
+                // Get image data and put it back into byte array
                 Grabber.GetCurrentBuffer(ref size, BufPtr);
 
                 Marshal.Copy(BufPtr, Buffer, 0, size);
 
-                // 画像を作成
+                // create image
                 var result = BmpBuilder.BufferToBitmap(Buffer);
 
                 return result;
@@ -790,28 +790,29 @@ namespace GitHub.secile.Video
         }
 
         /// <summary>
-        /// サンプルグラバを作成する
+        /// Create a sample grabber
         /// </summary>
         private DirectShow.IBaseFilter CreateSampleGrabber()
         {
             var filter = DirectShow.CreateFilter(DirectShow.DsGuid.CLSID_SampleGrabber);
             var ismp = filter as DirectShow.ISampleGrabber;
+            /*
+                When the sample grabber is first created, no preferred media type is set.
+                This means that you can connect to almost any filter in your graph, but you have no control over the type of data it receives.
+                So before building the rest of the graph, call the ISampleGrabber::SetMediaType method to
+                Set the media type for the sample grabber.
 
-            // サンプル グラバを最初に作成したときは、優先メディア タイプは設定されていない。
-            // これは、グラフ内のほぼすべてのフィルタに接続はできるが、受け取るデータ タイプを制御できないとうことである。
-            // したがって、残りのグラフを作成する前に、ISampleGrabber::SetMediaType メソッドを呼び出して、
-            // サンプル グラバに対してメディア タイプを設定すること。
+                The sample grabber will compare this configured media type with the media types provided by other filters when connected.
+                The only fields examined are major type, subtype, and format type.
+                For these fields, the value GUID_NULL means "accept any value".
+                Typically, you set the major type and subtype.
 
-            // サンプル グラバは、接続した時に他のフィルタが提供するメディア タイプとこの設定されたメディア タイプとを比較する。
-            // 調べるフィールドは、メジャー タイプ、サブタイプ、フォーマット タイプだけである。
-            // これらのフィールドでは、値 GUID_NULL は "あらゆる値を受け付ける" という意味である。
-            // 通常は、メジャー タイプとサブタイプを設定する。
+                https://msdn.microsoft.com/ja-jp/library/cc370616.aspx
+                https://msdn.microsoft.com/ja-jp/library/cc369546.aspx
 
-            // https://msdn.microsoft.com/ja-jp/library/cc370616.aspx
-            // https://msdn.microsoft.com/ja-jp/library/cc369546.aspx
-            // サンプル グラバ フィルタはトップダウン方向 (負の biHeight) のビデオ タイプ、または
-            // FORMAT_VideoInfo2 のフォーマット タイプのビデオ タイプはすべて拒否する。
-
+                The sample grabber filter is for top-down (negative biHeight) video types, or
+                Reject all video types with a format type of FORMAT_VideoInfo2.
+           */
             var mt = new DirectShow.AM_MEDIA_TYPE();
             mt.MajorType = DirectShow.DsGuid.MEDIATYPE_Video;
             mt.SubType = DirectShow.DsGuid.MEDIASUBTYPE_RGB24;
@@ -820,7 +821,7 @@ namespace GitHub.secile.Video
         }
 
         /// <summary>
-        /// Video Capture Sourceフィルタを作成する
+        /// Create a Video Capture Source filter
         /// </summary>
         private DirectShow.IBaseFilter CreateVideoCaptureSource(int index, VideoFormat format)
         {
@@ -831,79 +832,81 @@ namespace GitHub.secile.Video
         }
 
         /// <summary>
-        /// ビデオキャプチャデバイスの出力形式を選択する。
+        /// Select the output format for your video capture device.
         /// </summary>
         private static void SetVideoOutputFormat(DirectShow.IPin pin, VideoFormat format)
         {
             var formats = GetVideoOutputFormat(pin);
+            /*
+              The specification allows a VideoCaptureDevice to support a range of output formats for each media type. For example:
+              [0]: YUY2 Min: 160x120, Max: 320x240, every 4 steps on X axis, 2 steps on Y axis
+              [1]: RGB8 min: 640x480, max: 640x480, every 0step on X axis, 0step on Y axis
+              Output size and frame rate can be set within this range with SetFormat.
+              However, as far as I tried, all the USB cameras I had were returned with a fixed size (same maximum and minimum).
 
-            // 仕様ではVideoCaptureDeviceはメディア タイプごとに一定範囲の出力フォーマットをサポートできる。例えば以下のように。
-            // [0]:YUY2 最小:160x120, 最大:320x240, X軸4STEP, Y軸2STEPごと
-            // [1]:RGB8 最小:640x480, 最大:640x480, X軸0STEP, Y軸0STEPごと
-            // SetFormatで出力サイズとフレームレートをこの範囲内で設定可能。
-            // ただし試した限り、手持ちのUSBカメラはすべてサイズ固定(最大・最小が同じ)で返してきた。
+              https://msdn.microsoft.com/ja-jp/windows/dd407352(v=vs.80) 
+              Most members of VIDEO_STREAM_CONFIG_CAPS are deprecated except:
+              Applications should avoid use by other members. Use IAMStreamConfig::GetFormat instead.
+              - Guid: FORMAT_VideoInfo or FORMAT_VideoInfo2, etc.
+              - VideoStandard: Specifies the format of the analog TV signal (NTSC, PAL, etc.) with the AnalogVideoStandard enumeration.
+              - MinFrameInterval, MaxFrameInterval: Range of frame rates supported by the video capture device. 100 nanosecond units.
 
-            // https://msdn.microsoft.com/ja-jp/windows/dd407352(v=vs.80)
-            // VIDEO_STREAM_CONFIG_CAPSの以下を除くほとんどのメンバーはdeprecated(非推奨)である。
-            // アプリケーションはその他のメンバーの利用を避けること。かわりにIAMStreamConfig::GetFormatを利用すること。
-            // - Guid:FORMAT_VideoInfo or FORMAT_VideoInfo2など。
-            // - VideoStandard:アナログTV信号のフォーマット(NTSC, PALなど)をAnalogVideoStandard列挙体で指定する。
-            // - MinFrameInterval, MaxFrameInterval:ビデオキャプチャデバイスがサポートするフレームレートの範囲。100ナノ秒単位。
+              According to the above, VIDEO_STREAM_CONFIG_CAPS seems to be deprecated now. It seems to use IAMStreamConfig::GetFormat instead.
+              Devices that comply with the above specifications will return a fixed output size, but older devices that do not will return a variable output size.
+              For reference, the procedure for changing resolution, crop size, frame rate, etc. with VIDEO_STREAM_CONFIG_CAPS is as follows.
 
-            // 上記によると、VIDEO_STREAM_CONFIG_CAPSは現在はdeprecated(非推奨)であるらしい。かわりにIAMStreamConfig::GetFormatを使用することらしい。
-            // 上記仕様を守ったデバイスは出力サイズを固定で返すが、守ってない古いデバイスは出力サイズを可変で返す、と考えられる。
-            // 参考までに、VIDEO_STREAM_CONFIG_CAPSで解像度・クロップサイズ・フレームレートなどを変更する手順は以下の通り。
+              ① Frame rate (this is not deprecated)
+              The VIDEO_STREAM_CONFIG_CAPS members MinFrameInterval and MaxFrameInterval are the minimum and maximum length of each video frame.
+              You can convert these values to frame rate using the following formula:
+              frames per second = 10,000,000 / frame duration
 
-            // ①フレームレート(これは非推奨ではない)
-            // VIDEO_STREAM_CONFIG_CAPS のメンバ MinFrameInterval と MaxFrameInterval は各ビデオ フレームの最小の長さと最大の長さである。
-            // 次の式を使って、これらの値をフレーム レートに変換できる。
-            // frames per second = 10,000,000 / frame duration
+              To request a specific frame rate, change his AvgTimePerFrame value in the structure VIDEOINFOHEADER or VIDEOINFOHEADER2 in the media type.
+              Devices may not support all possible values between the minimum and maximum values, so the driver uses the closest available value.
 
-            // 特定のフレーム レートを要求するには、メディア タイプにある構造体 VIDEOINFOHEADER か VIDEOINFOHEADER2 の AvgTimePerFrame の値を変更する。
-            // デバイスは最小値と最大値の間で可能なすべての値はサポートしていないことがあるため、ドライバは使用可能な最も近い値を使う。
+              (2) Cropping (cropping part of the image)
+              MinCroppingSize = (160, 120) // Cropping minimum size.
+              MaxCroppingSize = (320, 240) // Cropping maximum size.
+              CropGranularityX = 4 // horizontal granularity.
+              CropGranularityY = 8 // vertical granularity.
+              CropAlignX = 2 // the top-left corner of the source rectangle can sit.
+              CropAlignY = 4 // the top-left corner of the source rectangle can sit.
 
-            // ②Cropping(画像の一部切り抜き)
-            // MinCroppingSize = (160, 120) // Cropping最小サイズ。
-            // MaxCroppingSize = (320, 240) // Cropping最大サイズ。
-            // CropGranularityX = 4         // 水平方向細分度。
-            // CropGranularityY = 8         // 垂直方向細分度。
-            // CropAlignX = 2               // the top-left corner of the source rectangle can sit.
-            // CropAlignY = 4               // the top-left corner of the source rectangle can sit.
+              (3) Output size
+              https://msdn.microsoft.com/en-us/library/cc353344.aspx
+              https://msdn.microsoft.com/en-us/library/cc371290.aspx
+              The VIDEO_STREAM_CONFIG_CAPS structure indicates the minimum and maximum width and height allowed for this media type.
+              Also shown is the "step" size, which defines the increment in which the width or height can be adjusted.
+              For example, a device may return the following values:
+              Min Output Size: 160 × 120
+              Max Output Size: 320 × 240
+              OutputGranularityX: 8 pixels (horizontal step size)
+              OutputGranularityY: 8 pixels (vertical step size)
+              Given these numbers, the width can be any value in the range (160, 168, 176, ... 304, 312, 320),
+              The height can be set to any value within the range (120, 128, 136, ... 224, 232, 240).
 
-            // ③出力サイズ
-            // https://msdn.microsoft.com/ja-jp/library/cc353344.aspx
-            // https://msdn.microsoft.com/ja-jp/library/cc371290.aspx
-            // VIDEO_STREAM_CONFIG_CAPS 構造体は、このメディア タイプに使える最小と最大の幅と高さを示す。
-            // また、"ステップ" サイズ"も示す。ステップ サイズは、幅または高さを調整できるインクリメントの値を定義する。
-            // たとえば、デバイスは次の値を返すことがある。
-            // MinOutputSize: 160 × 120
-            // MaxOutputSize: 320 × 240
-            // OutputGranularityX:8 ピクセル (水平ステップ サイズ)
-            // OutputGranularityY:8 ピクセル (垂直ステップ サイズ)
-            // これらの数値が与えられると、幅は範囲内 (160、168、176、... 304、312、320) の任意の値に、
-            // 高さは範囲内 (120、128、136、... 224、232、240) の任意の値に設定できる。
+              Uncomment the following to debug because there is no USB camera with variable output size.
+              I have no USB camera of variable output size, uncomment below to debug.
+                 size = new Size(168, 126);
+                 vformat[0].Caps = new DirectShow.VIDEO_STREAM_CONFIG_CAPS()
+                 {
+                     Guid = DirectShow.DsGuid.FORMAT_VideoInfo,
+                     MinOutputSize = new DirectShow.SIZE() { cx = 160, cy = 120 },
+                     MaxOutputSize = new DirectShow.SIZE() { cx = 320, cy = 240 },
+                     OutputGranularityX = 4,
+                     OutputGranularity Y = 2
+                 };
+            */
 
-            // 出力サイズの可変のUSBカメラがないためデバッグするには以下のコメントを外す。
-            // I have no USB camera of variable output size, uncomment below to debug.
-            //size = new Size(168, 126);
-            //vformat[0].Caps = new DirectShow.VIDEO_STREAM_CONFIG_CAPS()
-            //{
-            //    Guid = DirectShow.DsGuid.FORMAT_VideoInfo,
-            //    MinOutputSize = new DirectShow.SIZE() { cx = 160, cy = 120 },
-            //    MaxOutputSize = new DirectShow.SIZE() { cx = 320, cy = 240 },
-            //    OutputGranularityX = 4,
-            //    OutputGranularityY = 2
-            //};
-
-            // VIDEO_STREAM_CONFIG_CAPSは現在では非推奨。まずは固定サイズを探す
+            // VIDEO_STREAM_CONFIG_CAPS is now deprecated. Find a fixed size first
             // VIDEO_STREAM_CONFIG_CAPS is deprecated. First, find just the fixed size.
             for (int i = 0; i < formats.Length; i++)
             {
                 var item = formats[i];
 
-                // VideoInfoのみ対応する。(VideoInfo2はSampleGrabber未対応のため)
+                
+                // Only VideoInfo is supported. (Because VideoInfo2 does not support SampleGrabber)
                 // VideoInfo only... (SampleGrabber do not support VideoInfo2)
-                // https://msdn.microsoft.com/ja-jp/library/cc370616.aspx
+                // https://msdn.microsoft.com/en-us/library/cc370616.aspx
                 if (item.MajorType != DirectShow.DsGuid.GetNickname(DirectShow.DsGuid.MEDIATYPE_Video)) continue;
                 if (string.IsNullOrEmpty(format.SubType) == false && format.SubType != item.SubType) continue;
                 if (item.Caps.Guid != DirectShow.DsGuid.FORMAT_VideoInfo) continue;
@@ -915,15 +918,16 @@ namespace GitHub.secile.Video
                 }
             }
 
-            // 固定サイズが見つからなかった。可変サイズの範囲を探す。
+
+            // Fixed size not found. Look for variable-sized ranges.
             // Not found fixed size, search for variable size.
             for (int i = 0; i < formats.Length; i++)
             {
                 var item = formats[i];
 
-                // VideoInfoのみ対応する。(VideoInfo2はSampleGrabber未対応のため)
+                // Only VideoInfo is supported. (Because VideoInfo2 does not support SampleGrabber)
                 // VideoInfo only... (SampleGrabber do not support VideoInfo2)
-                // https://msdn.microsoft.com/ja-jp/library/cc370616.aspx
+                // https://msdn.microsoft.com/en-us/library/cc370616.aspx
                 if (item.MajorType != DirectShow.DsGuid.GetNickname(DirectShow.DsGuid.MEDIATYPE_Video)) continue;
                 if (string.IsNullOrEmpty(format.SubType) == false && format.SubType != item.SubType) continue;
                 if (item.Caps.Guid != DirectShow.DsGuid.FORMAT_VideoInfo) continue;
@@ -944,25 +948,25 @@ namespace GitHub.secile.Video
                 }
             }
 
-            // サイズが見つかなかった場合はデフォルトサイズとする。
+            // Default size if size not found.
             // Not found, use default size.
             SetVideoOutputFormat(pin, 0, Size.Empty, 0);
         }
 
 
         /// <summary>
-        /// ビデオキャプチャデバイスがサポートするメディアタイプ・サイズを取得する。
+        /// Get the media types and sizes supported by the video capture device.
         /// </summary>
         private static VideoFormat[] GetVideoOutputFormat(DirectShow.IPin pin)
         {
-            // IAMStreamConfigインタフェース取得
+            // Get IAMStreamConfig interface
             var config = pin as DirectShow.IAMStreamConfig;
             if (config == null)
             {
                 throw new InvalidOperationException("no IAMStreamConfig interface.");
             }
 
-            // フォーマット個数取得
+            // Get number of formats
             int cap_count = 0, cap_size = 0;
             config.GetNumberOfCapabilities(ref cap_count, ref cap_size);
             if (cap_size != Marshal.SizeOf(typeof(DirectShow.VIDEO_STREAM_CONFIG_CAPS)))
@@ -970,23 +974,23 @@ namespace GitHub.secile.Video
                 throw new InvalidOperationException("no VIDEO_STREAM_CONFIG_CAPS.");
             }
 
-            // 返却値の確保
+            // Save the return value
             var result = new VideoFormat[cap_count];
 
-            // データ用領域確保
+            // Save area for data
             var cap_data = Marshal.AllocHGlobal(cap_size);
 
-            // 列挙
+            // enumeration of video formats
             for (int i = 0; i < cap_count; i++)
             {
                 var entry = new VideoFormat();
 
-                // x番目のフォーマット情報取得
+                // Get xth format information
                 DirectShow.AM_MEDIA_TYPE mt = null;
                 config.GetStreamCaps(i, ref mt, cap_data);
                 entry.Caps = PtrToStructure<DirectShow.VIDEO_STREAM_CONFIG_CAPS>(cap_data);
 
-                // フォーマット情報の読み取り
+                // Read format information
                 entry.MajorType = DirectShow.DsGuid.GetNickname(mt.MajorType);
                 entry.SubType = DirectShow.DsGuid.GetNickname(mt.SubType);
 
@@ -1003,36 +1007,36 @@ namespace GitHub.secile.Video
                     entry.TimePerFrame = vinfo.AvgTimePerFrame;
                 }
 
-                // 解放
+                // release memory
                 DirectShow.DeleteMediaType(ref mt);
 
                 result[i] = entry;
             }
 
-            // 解放
+            // release memory
             Marshal.FreeHGlobal(cap_data);
 
             return result;
         }
 
         /// <summary>
-        /// ビデオキャプチャデバイスの出力形式を選択する。
-        /// 事前にGetVideoOutputFormatでメディアタイプ・サイズを得ておき、その中から希望のindexを指定する。
-        /// 同時に出力サイズとフレームレートを変更することができる。
+        /// Select the output format for your video capture device.
+        /// Get the media type and size in advance with GetVideoOutputFormat, and specify the desired index from among them.
+        /// You can change the output size and frame rate at the same time.
         /// </summary>
-        /// <param name="index">希望のindexを指定する</param>
-        /// <param name="size">Empty以外を指定すると出力サイズを変更する。事前にVIDEO_STREAM_CONFIG_CAPSで取得した可能範囲内を指定すること。</param>
-        /// <param name="timePerFrame">0以上を指定するとフレームレートを変更する。事前にVIDEO_STREAM_CONFIG_CAPSで取得した可能範囲内を指定すること。</param>
+        /// <param name="index">specify the desired index</param>
+        /// <param name="size">If anything other than Empty is specified, the output size will be changed. Specify within the possible range obtained in advance with VIDEO_STREAM_CONFIG_CAPS.</param>
+        /// <param name="timePerFrame">Specifying 0 or more changes the frame rate. Specify within the possible range obtained in advance with VIDEO_STREAM_CONFIG_CAPS.</param>
         private static void SetVideoOutputFormat(DirectShow.IPin pin, int index, Size size, long timePerFrame)
         {
-            // IAMStreamConfigインタフェース取得
+            // Get IAMStreamConfig interface
             var config = pin as DirectShow.IAMStreamConfig;
             if (config == null)
             {
                 throw new InvalidOperationException("no IAMStreamConfig interface.");
             }
 
-            // フォーマット個数取得
+            // Get number of formats
             int cap_count = 0, cap_size = 0;
             config.GetNumberOfCapabilities(ref cap_count, ref cap_size);
             if (cap_size != Marshal.SizeOf(typeof(DirectShow.VIDEO_STREAM_CONFIG_CAPS)))
@@ -1040,10 +1044,10 @@ namespace GitHub.secile.Video
                 throw new InvalidOperationException("no VIDEO_STREAM_CONFIG_CAPS.");
             }
 
-            // データ用領域確保
+            // Secure area for data
             var cap_data = Marshal.AllocHGlobal(cap_size);
 
-            // idx番目のフォーマット情報取得
+            // Get idxth format information
             DirectShow.AM_MEDIA_TYPE mt = null;
             config.GetStreamCaps(index, ref mt, cap_data);
             var cap = PtrToStructure<DirectShow.VIDEO_STREAM_CONFIG_CAPS>(cap_data);
@@ -1063,10 +1067,10 @@ namespace GitHub.secile.Video
                 Marshal.StructureToPtr(vinfo, mt.pbFormat, true);
             }
 
-            // フォーマットを選択
+            // Select format
             config.SetFormat(mt);
 
-            // 解放
+            // free memory
             if (cap_data != System.IntPtr.Zero) Marshal.FreeHGlobal(cap_data);
             if (mt != null) DirectShow.DeleteMediaType(ref mt);
         }
@@ -1078,10 +1082,10 @@ namespace GitHub.secile.Video
 
         public class VideoFormat
         {
-            public string MajorType { get; set; }  // [Video]など
-            public string SubType { get; set; }    // [YUY2], [MJPG]など
-            public Size Size { get; set; }         // ビデオサイズ
-            public long TimePerFrame { get; set; } // ビデオフレームの平均表示時間を100ナノ秒単位で。30fpsのとき「333333」
+            public string MajorType { get; set; }  // [Video] etc.
+            public string SubType { get; set; }    // [YUY2], [MJPG], etc.
+            public Size Size { get; set; }         // video size
+            public long TimePerFrame { get; set; } // The average display time of a video frame in 100ns units. "333333" at 30fps
             public DirectShow.VIDEO_STREAM_CONFIG_CAPS Caps { get; set; }
 
             public override string ToString()
@@ -1106,13 +1110,13 @@ namespace GitHub.secile.Video
     {
         #region Function
 
-        /// <summary>COMオブジェクトのインスタンスを作成する。</summary>
+        /// <summary>Create an instance of a COM object.</summary>
         public static object CoCreateInstance(Guid clsid)
         {
             return Activator.CreateInstance(Type.GetTypeFromCLSID(clsid));
         }
 
-        /// <summary>COMオブジェクトのインスタンスを開放する。</summary>
+        /// <summary>Release an instance of a COM object.</summary>
         public static void ReleaseInstance<T>(ref T com) where T : class
         {
             if (com != null)
@@ -1122,13 +1126,13 @@ namespace GitHub.secile.Video
             }
         }
 
-        /// <summary>フィルタグラフを作成する。</summary>
+        /// <summary>Create a filter graph.</summary>
         public static IGraphBuilder CreateGraph()
         {
             return CoCreateInstance(DsGuid.CLSID_FilterGraph) as IGraphBuilder;
         }
 
-        /// <summary>フィルタグラフを再生・停止・一時停止する。</summary>
+        /// <summary>Play/stop/pause the filter graph.</summary>
         public static void PlayGraph(IGraphBuilder graph, FILTER_STATE state)
         {
             var mediaControl = graph as IMediaControl;
@@ -1142,7 +1146,7 @@ namespace GitHub.secile.Video
             }
         }
 
-        /// <summary>フィルタの一覧を取得する。</summary>
+        /// <summary>Get a list of filters.</summary>
         public static List<string> GetFiltes(Guid category)
         {
             var result = new List<string>();
@@ -1155,19 +1159,19 @@ namespace GitHub.secile.Video
 
                 result.Add(name);
 
-                return false; // 継続。
+                return false; // continuation.
             });
 
             return result;
         }
 
-        /// <summary>フィルタのインスタンスを作成する。CLSIDで指定する。</summary>
+        /// <summary>Create an instance of the filter. Specified by CLSID.</summary>
         public static IBaseFilter CreateFilter(Guid clsid)
         {
             return CoCreateInstance(clsid) as IBaseFilter;
         }
 
-        /// <summary>フィルタのインスタンスを作成する。CategoryとIndexで指定する。</summary>
+        /// <summary>Create an instance of the filter. Specify by Category and Index.</summary>
         public static IBaseFilter CreateFilter(Guid category, int index)
         {
             IBaseFilter result = null;
@@ -1175,10 +1179,10 @@ namespace GitHub.secile.Video
             int curr_index = 0;
             EnumMonikers(category, (moniker, prop) =>
             {
-                // 指定indexになるまで継続。
+                // Continue until the specified index is reached.
                 if (index != curr_index++) return false;
 
-                // フィルタのインスタンス作成して返す。
+                // Create and return an instance of the filter.
                 {
                     object value = null;
                     Guid guid = DirectShow.DsGuid.IID_IBaseFilter;
@@ -1192,8 +1196,8 @@ namespace GitHub.secile.Video
             return result;
         }
 
-        /// <summary>モニカを列挙する。</summary>
-        /// <remarks>モニカとはCOMオブジェクトを識別する別名のこと。</remarks>
+        /// <summary>Enumerate monikers.</summary>
+        /// <remarks>A moniker is an alias that identifies a COM object.</remarks>
         private static void EnumMonikers(Guid category, Func<IMoniker, IPropertyBag, bool> func)
         {
             IEnumMoniker enumerator = null;
@@ -1201,16 +1205,16 @@ namespace GitHub.secile.Video
 
             try
             {
-                // ICreateDevEnum インターフェース取得.
+                // Get ICreateDevEnum interface.
                 device = (ICreateDevEnum)Activator.CreateInstance(Type.GetTypeFromCLSID(DsGuid.CLSID_SystemDeviceEnum));
 
-                // IEnumMonikerの作成.
+                // Creation of IEnumMoniker.
                 device.CreateClassEnumerator(ref category, ref enumerator, 0);
 
-                // 列挙可能なデバイスが存在しない場合null
+                // null if no enumerable device exists
                 if (enumerator == null) return;
 
-                // 列挙.
+                // Enumeration.
                 var monikers = new IMoniker[1];
                 var fetched = IntPtr.Zero;
 
@@ -1218,7 +1222,7 @@ namespace GitHub.secile.Video
                 {
                     var moniker = monikers[0];
 
-                    // プロパティバッグへのバインド.
+                    // Bind to property bag.
                     object value = null;
                     Guid guid = DsGuid.IID_IPropertyBag;
                     moniker.BindToStorage(null, null, ref guid, out value);
@@ -1226,16 +1230,16 @@ namespace GitHub.secile.Video
 
                     try
                     {
-                        // trueで列挙完了。falseで継続する。
+                        // Enumeration completed with true. Continue with false.
                         var rc = func(moniker, prop);
                         if (rc == true) break;
                     }
                     finally
                     {
-                        // プロパティバッグの解放
+                        // Freeing the property bag
                         Marshal.ReleaseComObject(prop);
 
-                        // 列挙したモニカの解放.
+                        // Release enumerated monikers.
                         if (moniker != null) Marshal.ReleaseComObject(moniker);
                     }
                 }
@@ -1247,7 +1251,7 @@ namespace GitHub.secile.Video
             }
         }
 
-        /// <summary>ピンを検索する。</summary>
+        /// <summary>Search for Pins.</summary>
         public static IPin FindPin(IBaseFilter filter, string name)
         {
             var result = EnumPins(filter, (pin, info) =>
@@ -1259,16 +1263,16 @@ namespace GitHub.secile.Video
             return result;
         }
 
-        /// <summary>ピンを検索する。</summary>
+        /// <summary>Search for Pins.</summary>
         public static IPin FindPin(IBaseFilter filter, int index, PIN_DIRECTION direction)
         {
             int curr_index = 0;
             var result = EnumPins(filter, (pin, info) =>
             {
-                // directionを確認。
+                // Confirm direction.
                 if (info.dir != direction) return false;
 
-                // indexは最後にチェック。
+                // Check the index last.
                 return (index == curr_index++);
             });
 
@@ -1276,19 +1280,19 @@ namespace GitHub.secile.Video
             return result;
         }
 
-        /// <summary>ピンを検索する。</summary>
+        /// <summary>Search for Pins.</summary>
         public static IPin FindPin(IBaseFilter filter, int index, PIN_DIRECTION direction, Guid category)
         {
             int curr_index = 0;
             var result = EnumPins(filter, (pin, info) =>
             {
-                // directionを確認。
+                // Confirm direction.
                 if (info.dir != direction) return false;
 
-                // categoryを確認。
+                // Check category.
                 if (GetPinCategory(pin) != category) return false;
 
-                // indexは最後にチェック。
+                // Check the index last.
                 return (index == curr_index++);
             });
 
@@ -1317,7 +1321,7 @@ namespace GitHub.secile.Video
             }
         }
 
-        /// <summary>Pinを列挙する。</summary>
+        /// <summary>Enumerate Pins.</summary>
         private static IPin EnumPins(IBaseFilter filter, Func<IPin, PIN_INFO, bool> func)
         {
             IEnumPins pins = null;
@@ -1358,7 +1362,7 @@ namespace GitHub.secile.Video
             return null;
         }
 
-        /// <summary>ピンを接続する。</summary>
+        /// <summary>Connect pins.</summary>
         public static void ConnectFilter(IGraphBuilder graph, IBaseFilter out_flt, int out_no, IBaseFilter in_flt, int in_no)
         {
             var out_pin = FindPin(out_flt, out_no, PIN_DIRECTION.PINDIR_OUTPUT);
@@ -1366,7 +1370,7 @@ namespace GitHub.secile.Video
             graph.Connect(out_pin, inp_pin);
         }
 
-        /// <summary>メディアタイプを開放する。</summary>
+        /// <summary>Free the media type.</summary>
         public static void DeleteMediaType(ref AM_MEDIA_TYPE mt)
         {
             if (mt.lSampleSize != 0) Marshal.FreeCoTaskMem(mt.pbFormat);
@@ -1511,7 +1515,7 @@ namespace GitHub.secile.Video
 
 
         /// <summary>
-        /// フィルタ グラフ内のフィルタを列挙するインタフェース.
+        /// An interface that enumerates the filters in the filter graph.
         /// </summary>
         [ComVisible(true), ComImport(), Guid("56a86893-0ad4-11ce-b03a-0020af0ba770"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         public interface IEnumFilters
@@ -1634,7 +1638,7 @@ namespace GitHub.secile.Video
         }
 
         /// <summary>
-        /// ビデオ ウィンドウのプロパティを設定するメソッドを提供するインタフェース.
+        /// An interface that provides methods to set the properties of the video window.
         /// </summary>
         [ComVisible(true), ComImport(), Guid("56a868b4-0ad4-11ce-b03a-0020af0ba770"), InterfaceType(ComInterfaceType.InterfaceIsDual)]
         public interface IVideoWindow
@@ -1958,12 +1962,12 @@ namespace GitHub.secile.Video
             private static Dictionary<Guid, string> NicknameCache = null;
 
             /// <summary>
-            /// Guidをわかりやすい文字列で返す。
-            /// MEDIATYPE_Videoなら[Video]を返す。PIN_CATEGORY_CAPTUREなら[CATEGORY_CAPTURE]を返す。
+            /// Returns the Guid as an easy-to-understand string.
+            /// If MEDIATYPE_Video, returns [Video]. Returns [CATEGORY_CAPTURE] if PIN_CATEGORY_CAPTURE.
             /// </summary>
             public static string GetNickname(Guid guid)
             {
-                // リフレクションでstatic public GuidのDictionaryを作成。結果はキャッシュしておく。
+                // Create a dictionary of static public Guids with reflection. Cache the results.
                 if (NicknameCache == null)
                 {
                     NicknameCache = typeof(DsGuid).GetFields(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public)
@@ -1976,9 +1980,9 @@ namespace GitHub.secile.Video
                     var name = NicknameCache[guid];
                     var elem = name.Split('_');
 
-                    // '_'で分割して、2個目以降を連結する。
-                    // MEDIATYPE_Videoなら[Video]を返す。
-                    // PIN_CATEGORY_CAPTUREなら[CATEGORY_CAPTURE]を返す。
+                    // Split by '_' and concatenate after the second one.
+                    // If MEDIATYPE_Video, returns [Video].
+                    // Returns [CATEGORY_CAPTURE] if PIN_CATEGORY_CAPTURE.
                     if (elem.Length >= 2)
                     {
                         var text = string.Join("_", elem.Skip(1).ToArray());
@@ -1990,7 +1994,7 @@ namespace GitHub.secile.Video
                     }
                 }
 
-                // 対応してない場合はToStringを呼び出す。
+                // If not, call ToString.
                 return guid.ToString();
             }
         }
